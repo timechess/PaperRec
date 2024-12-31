@@ -57,7 +57,7 @@ class PaperRecommender:
         if today.day == 1:
             # First day of month, look at last day of previous month
             prev_month = today.replace(day=1) - timedelta(days=1)
-            start_date = datetime(prev_month.year, prev_month.month, prev_month.day - 2)
+            start_date = datetime(prev_month.year, prev_month.month, prev_month.day - 1)
         else:
             start_date = datetime(today.year, today.month, today.day - 1)
 
@@ -81,18 +81,20 @@ class DeepSeekPaperRecommender(PaperRecommender):
             api_key=self.config.deepseek_api, base_url="https://api.deepseek.com"
         )
 
-    def _generate_markdown(self, papers: List[Paper]) -> str:
-        """Generate markdown content from recommended papers"""
-        markdown = "# Daily Recommended Papers\n\n"
+    def _generate_html(self, papers: List[Paper]) -> str:
+        """Generate HTML content from recommended papers"""
+        html = """<h1>Daily Recommended Papers</h1>"""
         for paper in papers:
-            markdown += f"## {paper['title']}\n\n"
-            markdown += f"{paper['summary']}\n\n"
-            markdown += f"**Published:** {paper['published'].strftime('%Y-%m-%d')}\n\n"
-            markdown += "---\n\n"
-        return markdown
+            html += f"""<div>
+<h2>{paper['title']}</h2>
+<p>{paper['summary']}</p>
+<p>Published: {paper['published'].strftime('%Y-%m-%d')}</p>
+</div>"""
 
-    async def _send_email(self, markdown: str) -> None:
-        """Send markdown content via email"""
+        return html
+
+    async def _send_email(self, html: str) -> None:
+        """Send HTML content via email"""
         yag = yagmail.SMTP(
             host="smtp.qq.com",
             user=self.config.email_address,
@@ -101,17 +103,18 @@ class DeepSeekPaperRecommender(PaperRecommender):
         )
         try:
             yag.send(
-                self.config.receive_email_address, "Daily Recommendation", markdown
+                to=self.config.receive_email_address,
+                subject="Daily Recommendation",
+                contents=html,
             )
-            self.logger.info("Successfully send email.")
+            self.logger.info("Successfully sent email with HTML content.")
         except Exception as e:
-            self.logger.error(f"Error sending email {e}")
+            self.logger.error(f"Error sending email: {e}")
 
     async def store_recommendation(self, paper_id: int, relevance: float):
         """Store recommendation in database"""
         await self.db.paper.update(
-            where={"id": paper_id},
-            data={"relevanceScore": relevance}
+            where={"id": paper_id}, data={"relevanceScore": relevance}
         )
 
     def prompt(self, abstract: str) -> List[Dict[str, str]]:
@@ -144,8 +147,9 @@ Keywords: {self.config.keywords}"""
 
             # Check relevance score in database
             db_paper = await self.db.paper.find_unique(where={"id": paper_id})
-            if db_paper and db_paper.relevanceScore > 0.5:
-                recommended.append(paper)
+            if db_paper.relevanceScore != -1:
+                if db_paper.relevanceScore > 0.5:
+                    recommended.append(paper)
                 continue
 
             try:
@@ -171,7 +175,7 @@ Keywords: {self.config.keywords}"""
 
         if recommended:
             # Generate and send markdown report
-            markdown = self._generate_markdown(recommended)
-            await self._send_email(markdown)
+            html = self._generate_html(recommended)
+            await self._send_email(html)
 
         return recommended
