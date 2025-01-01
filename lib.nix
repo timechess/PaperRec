@@ -7,5 +7,6 @@
         poetry
         gnumake
         ruff
+        openssl
       ];
 }

@@ -21,12 +21,14 @@ COPY .env .env
 # Copy application code
 COPY . .
 
+# FIXME: Build stuck here.
+RUN poetry run prisma generate
+
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV DATABASE_URL="postgresql://paperrec:paperrec@db:5432/paperrec"
 
 # Expose port (if needed)
 EXPOSE 8000
 
 # Run the application
-CMD ["poetry", "run", "python", "main.py"]
+CMD ["poetry", "run", "paperrec"]
