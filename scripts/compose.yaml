@@ -31,5 +31,4 @@ services:
   #     - USER_KEYWORDS=${USER_KEYWORDS}
   #   volumes:
   #     - ..:/app
-  #   entrypoint: ["sh", "-c", "cd /app && poetry run prisma db push && exec $@", "--"]
   #   restart: unless-stopped

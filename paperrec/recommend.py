@@ -6,7 +6,7 @@ from prisma import Prisma
 import os
 from openai import OpenAI
 import json
-
+import markdown
 
 class Paper(TypedDict):
     id: int
@@ -24,7 +24,7 @@ class Config:
         self.keywords = os.getenv("USER_KEYWORDS")
         self.email_address = os.getenv("EMAIL_ADDRESS")
         self.email_password = os.getenv("EMAIL_PASSWORD")
-        self.receive_email_address = os.getenv("RECEIVE_EMAIL")
+        self.receive_email_address = os.getenv("RECEIVE_EMAIL").split(",")
         self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
         self.smtp_port = int(os.getenv("SMTP_PORT", 587))
 
@@ -57,7 +57,7 @@ class PaperRecommender:
         if today.day == 1:
             # First day of month, look at last day of previous month
             prev_month = today.replace(day=1) - timedelta(days=1)
-            start_date = datetime(prev_month.year, prev_month.month, prev_month.day - 1)
+            start_date = datetime(prev_month.year, prev_month.month, prev_month.day)
         else:
             start_date = datetime(today.year, today.month, today.day - 1)
 
@@ -81,15 +81,40 @@ class DeepSeekPaperRecommender(PaperRecommender):
             api_key=self.config.deepseek_api, base_url="https://api.deepseek.com"
         )
 
+    def _generate_summary(self, papers: List[Paper]) -> str:
+        """Generate Chinese summary for all papers using DeepSeek API"""
+        combined_summaries = "\n\n".join([p["title"] + "\n" + p['summary'] for p in papers])
+        response = self.client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一个专业的学术论文助手，请根据以下多篇论文的摘要，生成一份综合性的中文总结报告",
+                },
+                {"role": "user", "content": combined_summaries},
+            ],
+        )
+        return response.choices[0].message.content
+
     def _generate_html(self, papers: List[Paper]) -> str:
         """Generate HTML content from recommended papers"""
-        html = """<h1>Daily Recommended Papers</h1>"""
-        for paper in papers:
-            html += f"""<div>
-<h2>{paper['title']}</h2>
-<p>{paper['summary']}</p>
-<p>Published: {paper['published'].strftime('%Y-%m-%d')}</p>
-</div>"""
+        if papers:
+            summary = markdown.markdown(self._generate_summary(papers))
+            html = f"""<h1>每日论文推荐总结</h1>
+    <div>
+    <h2>今日论文综述：</h2>
+    {summary}
+    </div>
+    <h2>推荐论文列表：</h2>"""
+
+            for paper in papers:
+                html += f"""<div>
+    <h3>{paper['title']}</h3>
+    <p>发表时间：{paper['published'].strftime('%Y-%m-%d')}</p>
+    <p>论文链接：{paper['pdf_url']}</p>
+    </div>"""
+        else:
+            html = "今天没有推荐论文，摸会儿鱼吧！"
 
         return html
 
@@ -104,7 +129,7 @@ class DeepSeekPaperRecommender(PaperRecommender):
         try:
             yag.send(
                 to=self.config.receive_email_address,
-                subject="Daily Recommendation",
+                subject="每日论文推荐",
                 contents=html,
             )
             self.logger.info("Successfully sent email with HTML content.")
@@ -166,16 +191,16 @@ Keywords: {self.config.keywords}"""
                 if relevance > 0.5:
                     recommended.append(paper)
                     self.logger.info(f"Recommended paper: {paper['title']}")
-                    await self.store_recommendation(paper_id, relevance)
+                await self.store_recommendation(paper_id, relevance)
 
             except json.JSONDecodeError as e:
                 self.logger.error(f"JSON decode error for paper {paper_id}: {e}")
             except Exception as e:
                 self.logger.error(f"Error processing paper {paper_id}: {e}")
 
-        if recommended:
-            # Generate and send markdown report
-            html = self._generate_html(recommended)
-            await self._send_email(html)
+
+        # Generate and send markdown report
+        html = self._generate_html(recommended)
+        await self._send_email(html)
 
         return recommended

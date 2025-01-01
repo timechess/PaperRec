@@ -15,16 +15,16 @@ class PaperFinder:
 
     async def find_recent_ai_papers(self):
         """Find and store recent AI papers from arXiv in the cs.AI category"""
-        # Get today's date and last week's date
+        # Get today's date and last three days date
         today = datetime.today()
-        last_week = today - timedelta(days=7)
-        print(f"Searching for papers published since {last_week.date()}")
+        last_three_days = today - timedelta(days=3)
+        print(f"Searching for papers published since {last_three_days.date()}")
 
         # Search for papers in cs.AI category published since last week
         client = arxiv.Client()
         print("Connected to arXiv API")
         search = arxiv.Search(
-            query=f"cat:cs.AI AND submittedDate:[{last_week.strftime('%Y%m%d')} TO {today.strftime('%Y%m%d')}]",
+            query=f"cat:cs.AI AND submittedDate:[{last_three_days.strftime('%Y%m%d')} TO {today.strftime('%Y%m%d')}]",
             # max_results=100,
             sort_by=arxiv.SortCriterion.SubmittedDate,
             sort_order=arxiv.SortOrder.Descending,

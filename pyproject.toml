@@ -13,6 +13,7 @@ openai = "^1.58.1"
 python-dotenv = "^1.0.1"
 email-validator = "^2.1.1"
 yagmail = "^0.15.293"
+markdown = "^3.7"
 
 [tool.poetry.scripts]
 paperrec = "paperrec.main:main"
