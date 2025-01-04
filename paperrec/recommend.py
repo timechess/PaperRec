@@ -1,21 +1,17 @@
 from datetime import datetime, timedelta
-from typing import List, Dict, TypedDict
+from typing import List, Dict
 import logging
-import yagmail
+from email.header import Header
+from email.mime.text import MIMEText
+from email.utils import parseaddr, formataddr
+import smtplib
 from prisma import Prisma
 import os
 from openai import OpenAI
 import json
 import markdown
-
-class Paper(TypedDict):
-    id: int
-    title: str
-    authors: List[str]
-    summary: str
-    published: datetime
-    pdf_url: str
-    relevanceScore: float
+from .find import Paper
+from .email import render_email
 
 
 class Config:
@@ -66,7 +62,7 @@ class PaperRecommender:
         papers = await self.db.paper.find_many(
             where={"published": {"gte": start_date, "lt": end_date}}
         )
-        return [dict(paper) for paper in papers]
+        return [Paper(paper) for paper in papers]
 
     async def recommend_papers(self) -> List[Paper]:
         """Recommend papers based on user preferences"""
@@ -83,7 +79,9 @@ class DeepSeekPaperRecommender(PaperRecommender):
 
     def _generate_summary(self, papers: List[Paper]) -> str:
         """Generate Chinese summary for all papers using DeepSeek API"""
-        combined_summaries = "\n\n".join([p["title"] + "\n" + p['summary'] for p in papers])
+        combined_summaries = "\n\n".join(
+            [p["title"] + "\n" + p["summary"] for p in papers]
+        )
         response = self.client.chat.completions.create(
             model="deepseek-chat",
             messages=[
@@ -100,41 +98,30 @@ class DeepSeekPaperRecommender(PaperRecommender):
         """Generate HTML content from recommended papers"""
         if papers:
             summary = markdown.markdown(self._generate_summary(papers))
-            html = f"""<h1>每日论文推荐总结</h1>
-    <div>
-    <h2>今日论文综述：</h2>
-    {summary}
-    </div>
-    <h2>推荐论文列表：</h2>"""
-
-            for paper in papers:
-                html += f"""<div>
-    <h3>{paper['title']}</h3>
-    <p>发表时间：{paper['published'].strftime('%Y-%m-%d')}</p>
-    <p>论文链接：{paper['pdf_url']}</p>
-    </div>"""
         else:
-            html = "今天没有推荐论文，摸会儿鱼吧！"
+            summary = ""
+        html = render_email(papers, summary)
 
         return html
 
     async def _send_email(self, html: str) -> None:
         """Send HTML content via email"""
-        yag = yagmail.SMTP(
-            host="smtp.qq.com",
-            user=self.config.email_address,
-            password=self.config.email_password,
-            smtp_ssl=True,
-        )
+
+        msg = MIMEText(html, 'html', 'utf-8')
+        msg['From'] = self.config.email_address
+        msg['To'] = ",".join(self.config.receive_email_address)
+        today = datetime.now().strftime('%Y/%m/%d')
+        msg['Subject'] = Header(f'Daily arXiv {today}', 'utf-8').encode()
+
         try:
-            yag.send(
-                to=self.config.receive_email_address,
-                subject="每日论文推荐",
-                contents=html,
-            )
-            self.logger.info("Successfully sent email with HTML content.")
-        except Exception as e:
-            self.logger.error(f"Error sending email: {e}")
+            server = smtplib.SMTP(self.config.smtp_server, self.config.smtp_port)
+            server.starttls()
+        except smtplib.SMTPServerDisconnected:
+            server = smtplib.SMTP_SSL(self.config.smtp_server, self.config.smtp_port)
+
+        server.login(self.config.email_address, self.config.email_password)
+        server.sendmail(self.config.email_address, self.config.receive_email_address, msg.as_string())
+        server.quit()
 
     async def store_recommendation(self, paper_id: int, relevance: float):
         """Store recommendation in database"""
@@ -197,7 +184,6 @@ Keywords: {self.config.keywords}"""
                 self.logger.error(f"JSON decode error for paper {paper_id}: {e}")
             except Exception as e:
                 self.logger.error(f"Error processing paper {paper_id}: {e}")
-
 
         # Generate and send markdown report
         html = self._generate_html(recommended)
