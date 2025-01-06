@@ -1,9 +1,8 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict
 import logging
 from email.header import Header
 from email.mime.text import MIMEText
-from email.utils import parseaddr, formataddr
 import smtplib
 from prisma import Prisma
 import os
@@ -47,20 +46,13 @@ class PaperRecommender:
 
     async def find_papers_today(self) -> List[Paper]:
         """Find papers published today, handling month boundaries"""
-        today = datetime.today().date()
+        today = datetime.now(timezone.utc)
 
-        # Handle month boundaries
-        if today.day == 1:
-            # First day of month, look at last day of previous month
-            prev_month = today.replace(day=1) - timedelta(days=1)
-            start_date = datetime(prev_month.year, prev_month.month, prev_month.day)
-        else:
-            start_date = datetime(today.year, today.month, today.day - 1)
+        start_date = today - timedelta(days=1)
 
-        end_date = datetime(today.year, today.month, today.day)
 
         papers = await self.db.paper.find_many(
-            where={"published": {"gte": start_date, "lt": end_date}}
+            where={"published": {"gte": start_date, "lte": today}}
         )
         return [Paper(paper) for paper in papers]
 
@@ -174,7 +166,7 @@ Keywords: {self.config.keywords}"""
 
                 result = json.loads(response.choices[0].message.content)
                 relevance = result.get("relevance", 0)
-
+                paper["relevanceScore"] = relevance
                 if relevance > 0.5:
                     recommended.append(paper)
                     self.logger.info(f"Recommended paper: {paper['title']}")
