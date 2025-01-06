@@ -42,7 +42,7 @@ async def run_daily():
         # Calculate time until next day
         now = datetime.now()
         tomorrow = now + timedelta(days=1)
-        next_run = datetime(tomorrow.year, tomorrow.month, tomorrow.day, hour=12)
+        next_run = datetime(tomorrow.year, tomorrow.month, tomorrow.day, hour=8)
         sleep_seconds = (next_run - now).total_seconds()
 
         logger.info(f"Sleeping for {sleep_seconds} seconds until next run")
